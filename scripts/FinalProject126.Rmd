@@ -1,0 +1,356 @@
+---
+title: "PSTAT 126 Final Project Report"
+author: "Aliza Samad, Michelle Brataatmadja, Madeleine Bulman, Isaiah Singer"
+date: "2024-11-29"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1.1 Regression Model Application
+
+### 1.1.1 Simple and Multiple Linear Regression
+```{r}
+# load data
+#setwd("/Users/alizasamad")
+#install.packages("tidyverse")
+data <- read.csv("cars.csv")
+library(dplyr)
+library(tidyverse)
+library(car)
+outliers <- boxplot.stats(data$Price)$out
+data <- data %>%
+  filter(!(Price %in% outliers))
+
+outliers <- boxplot.stats(data$Mileage)$out
+data <- data %>%
+  filter(!(Mileage %in% outliers))
+
+data$Segment <- ifelse(data$Brand %in% c("Audi", "BMW", "Mercedes"), "Premium", "Economy")
+
+
+# simple linear regression
+model1.1 <- lm(Price ~ Year, data=data)
+#summary(model1.1)
+
+model1.2 <- lm(Price ~ Power, data = data)
+#summary(model1.2)
+
+# multiple regression
+model2.1 <- lm(Price ~ Year + Mileage + Kilometers_Driven + Transmission + Engine, data=data)
+#summary(model2.1)
+vif(model2.1)
+
+model2.2 <- lm(Price ~ Power + Segment, data=data)
+#summary(model2.2)
+vif(model2.2)
+```
+### 1.1.2 Model Selection and Evaluation
+
+Model 1:
+```{r message=FALSE, warning=FALSE}
+
+model1 <- lm(Price ~ Year*Mileage*Engine*Transmission, data=data) #Relation b/n power and price will be explored in second model, Kilometer_Driven & Year have high correlation
+
+# Step-wise Selection
+model1_official <- step(lm(Price ~ 1, data = data), 
+                      direction ="both", 
+                      scope = formula(model1))
+summary(model1_official)
+```
+
+```{r}
+# original model
+AIC(model1)
+BIC(model1)
+
+# official model
+AIC(model1_official)
+BIC(model1_official)
+
+# check for collinearity between main effects
+vif(lm(Price~Engine + Transmission + Mileage + Year, data=data))
+```
+
+Model 2:
+```{r, message = FALSE}
+
+# Transformation
+plot(Price~Power, data=data)
+plot(log(Price)~log(Power), data=data)
+
+model2 <- lm(log(Price)~ I(Power^-0.95) * Segment, data=data)
+
+# Step-wise selection
+model2_official <- step(lm((Price) ~ 1, data = data), 
+                      direction ="both", 
+                      scope = formula(model2))
+
+# official model (same as model2)
+AIC(model2_official)
+BIC(model2_official)
+
+# check for collinearity between main effects
+vif(lm(log(Price)~I(Power^-0.3) + Segment, data=data))
+summary(model2_official)
+```
+
+# 1.2 Diagnostic Checking
+
+### 1.2.1 Model Assumptions 
+
+Model 1
+```{r}
+#install.packages("faraway")
+library(faraway)
+library(ggplot2)
+
+
+# Linearity
+par(mfrow = c(2,2))
+
+
+# Homoscedasticity & Independence
+plot(model1_official$fitted, model1_official$residuals, main = "Residuals vs Fitted Values", xlab = "fitted", ylab = "residuals")
+abline(h = 0, col = "red", lwd = 2)
+
+
+# Normality of Errors
+hist(model1_official$residuals)
+
+qqnorm(model1_official$residuals)
+qqline(model1_official$residuals)
+
+shapiro.test(model1_official$residuals)
+```
+
+Model 2
+```{r, message = FALSE}
+#install.packages("faraway")
+library(faraway)
+library(ggplot2)
+
+
+# Linearity
+data <- data %>%
+  mutate(Power_transformed = Power^-0.95)
+
+ggplot(data = data, aes(x = Power_transformed, y = log(Price), color = Segment)) +
+  facet_grid(~Segment) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(
+    x = "Log of Power",
+    y = "Log of Price",
+    title = "Relationship Between Power and Price by Segment"
+  ) +
+  theme_minimal()
+
+
+# Homoscedasticity & Independence
+plot(model2_official$fitted, model2_official$residuals, main = "Residuals vs Fitted Values", xlab = "fitted", ylab = "residuals")
+abline(h = 0, col = "red", lwd = 2)
+
+
+# Normality of Errors
+hist(model2_official$residuals)
+
+qqnorm(model2_official$residuals)
+qqline(model2_official$residuals)
+
+shapiro.test(model2_official$residuals)
+#low p-value does not support normality assumption 
+```
+
+### 1.2.2 Residual Analysis
+
+Model 1:
+```{r, message = FALSE}
+#install.packages("performance")
+#install.packages("patchwork")
+library(performance)
+#install.packages("see")
+library(see)
+
+# Residual Plots
+par(mfrow = c(2,2))
+plot(model1_official)
+
+# QQ Plot
+residuals = residuals(model1_official)
+residuals = as.numeric(residuals)
+qqnorm(residuals)
+qqline(residuals, col = "red")
+
+# Leverage and Influence
+
+performance::check_model(model1_official)
+
+# check for patterns in residuals vs. predictors to explain residual normality plot
+par(mfrow = c(2,2))
+
+plot(model1_official$residuals ~ data$Year,
+     main =" Residuals vs. Year", xlab = "Year", ylab = "Residuals")
+abline(h = 0, col = "red", lwd = 2)
+
+plot(model1_official$residuals ~ data$Mileage,
+     main =" Residuals vs. Mileage", xlab = "Mileage", ylab = "Residuals")
+abline(h = 0, col = "red", lwd = 2)
+
+plot(model1_official$residuals ~ data$Engine,
+     main =" Residuals vs. Engine", xlab = "Engine", ylab = "Residuals")
+abline(h = 0, col = "red", lwd = 2)
+
+ggplot(data = data, aes(x = Transmission, y = model1_official$residuals)) +
+  geom_boxplot() +
+  geom_violin(alpha = 0.4, fill = "lightblue") +
+  labs(
+    x = "Transmission Type",
+    y = "Residuals",
+    title = "Distribution of Residuals by Transmission Type"
+  ) +
+  theme_minimal()
+```
+
+Model 2:
+```{r}
+# Residual Plots
+plot(model2_official)
+
+# QQ Plot
+residuals = residuals(model2_official)
+residuals = as.numeric(residuals)
+qqnorm(residuals)
+qqline(residuals, col = "red")
+
+# Leverage and Influence
+
+performance::check_model(model2_official)
+
+# check for patterns in residuals vs. predictors to explain residual normality plot
+plot(residuals ~ data$Power_transformed,
+     main =" Residuals vs. Power_transformed", xlab = "Power_transformed", ylab = "Residuals")
+abline(h = 0, col = "red", lwd = 2)
+
+ggplot(data = data, aes(x = Segment, y = residuals)) +
+  geom_boxplot() +
+  geom_violin(alpha = 0.4, fill = "lightblue") +
+  labs(
+    x = "Brand Segment",
+    y = "Residuals",
+    title = "Distribution of Residuals by Brand Segment"
+  ) +
+  theme_minimal()
+```
+
+
+### 1.2.3 Multicollinearity
+```{r}
+# Variance Inflation factor (VIF)
+model1_official$coefficients
+model2_official$coefficients
+
+# main effects only
+model1 <- lm(Price ~ Engine + Transmission + Mileage + Year, data=data)
+model2 <- lm(log(Price) ~ I(Power^-0.95) + Segment, data=data)
+
+vif(model1)
+vif(model2)
+```
+
+### 1.2.4 Outliers and Influential Points
+Model 1:
+```{r}
+# Influential Points
+influencePlot(model1_official)
+# There are 4 points (3,7,23,39) that have been identified as 
+#influencial points 
+
+influence.measures(model1_official)
+# There are 11 points(3,5,16,35,39,43,51,73,77,81, and 89) 
+#that have been highlighted with an asterisk to be defined as influential 
+#points based on deletion row diagnostics measures 
+
+# Check for outliers 
+outlierTest(model1_official)
+# Point 7 is the only point identified as an outlier 
+
+```
+
+Model 2:
+```{r}
+# Influential Points
+influencePlot(model2_official)
+# There are 4 points (30,39,51,68, 77, 89) that have been identified as 
+#influencial points 
+
+influence.measures(model2_official)
+# There are 11 points(3,5,16,35,39,43,51,73,77,81, and 89) 
+#that have been highlighted with an asterisk to be defined as influential 
+#points based on deletion row diagnostics measures 
+
+# Check for outliers 
+outlierTest(model2_official)
+# Point 30 is the only point identified as an outlier 
+```
+
+# 1.3 Interpretation of Results
+
+### 1.3.1 Interpret Coefficients
+
+Model 1:
+
+Research Question 1:
+
+The coefficient for Year is approximately -3581.75. In other words, as the car gets older, the resale price decreases by $3581.75 units per year.
+
+The coefficient for TransmissionManual is priced on average 86,622.76 less than automatic transmissions. This shows that used cars with manual transmission tend to have a much lower resale price.
+
+The coefficient for mileage is 47,470,000, or 4.747 $\times 10^7$. In other words, for every unit increase in mileage, the price of a used car increases by 4.747 $\times 10^7$ units. Since higher mileage typically does not increase the value of a used car, this result likely reflects other factors at play, such as newer vehicles with high mileage, which may obscure the usual relationship between mileage and resale price.
+
+The coefficient for engine is approximately 5,574.09. For every unit increase in engine, the price of a used car increases by $5,574.09. This implies that a stronger engine has a positive correlation with the price of a used car.
+
+The coefficient for Mileage:Year is $-2.374 \times 10^4$, or 23, 740 units. This implies that for each added year of age, the relationship between mileage and price decreases by 23,740 units. In other words, as a car gets older, the increase in price associated with the coefficient of mileage becomes less significant.
+
+The coefficient for Engine:Year is -2.77, which shows that for each added year of age, the relationship between engine and price decreases by $2.77. While it does show a decreasing trend, it is not large enough to draw any conclusions from it.
+
+The coefficient of Engine:Mileage:Year is 39.48. This shows that for each added year of age, the engine power and mileage increase price by 39.48 units. Once again, since the number is not large, conclusions can't be drawn from it.
+
+
+
+### 1.3.2 Model Fit
+
+Model 1:
+
+Model 1 has an $R^2$ value of .8488 which shows that the model can explain 84.88% of variance in price. Since this value of $R^2$ is relatively high, it implies that this model may be a good fit for the data.
+
+The adjusted $R^2$ value is .8299 which shows that after accounting for model complexity, the model still explains 82.99% of variance in price. Since the adjusted $R^2$ value is close to $R^2$, overfitting does not seem to be an issue in the model.
+
+The value of the RSS is 1.4977 $\times 10^{13}$, which relative to the scale of the dataset, is a small value. With that being said, the inclusion of the predictors on the response variable help explain the variance in prince.
+
+Therefore, it can be said that this regression model is a good fit for the dataset.
+
+### 1.3.3 Statistical Significance
+
+Model 1:
+
+The p-value for Year is $\approx$ .73. This is a large value and shows that the age of a car alone is not statistically significant on price.
+
+The p-value for TransmissionManual is $\approx$ .00064. This is a very small value and shows that the the type of transmission of a car is extremely signficiant on price.
+
+The p-value for Mileage is $\approx$ .63. This is a large value and shows that the mileage of a car alone is not statistically significant on price.
+
+The p-value for Engine is $\approx$ .63. This is a large value and shows that the engine of a car alone is not statistically significant on price.
+
+The p-value for TransmissionManual:Mileage is $\approx$ .00032. This is a very small value and shows that the effect of mileage on price is dependent on what type of transmission the car has.
+
+The other interactive terms such as Engine:Year, Mileage:Year, etc... all had large p-values and were not statistically significant.
+
+
+
+
+### 1.3.4 Conclusion
+With research questions in mind, the model has shown through the coefficients and p-values that we fail to reject the null hypothesis for our question regarding car age influencing mileage, engine, and transmission as it has shown that mileage and engine do not have any statistical significance on the age of the car.
+
